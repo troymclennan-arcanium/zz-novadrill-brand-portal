@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' blob: data:; frame-src blob:; base-uri 'none'; form-action 'none'">
+<title>ZZ NovaDrill brand portal</title>
+<style>
+:root{--slab:#2B2F36;--core:#F2EFE9;--orange:#E8651A;--dust:#8C9096}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--slab);color:var(--core);font-family:Archivo,'Arial Black',Arial,sans-serif;line-height:1.5;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem}
+main{width:100%;max-width:26rem}
+h1{font-size:1.9rem;line-height:1.1;margin:0 0 .4rem;font-weight:900;letter-spacing:.01em}
+p{margin:.4rem 0 1.2rem;font-family:Arial,sans-serif;font-size:1rem}
+.note{font-size:.9rem;color:#D7D4CE}
+label{display:block;font-family:Arial,sans-serif;font-weight:700;font-size:1rem;margin:0 0 .4rem}
+input{width:100%;min-height:48px;font-size:1.1rem;padding:.5rem .8rem;border:2px solid var(--core);background:var(--slab);color:var(--core);border-radius:4px;font-family:Arial,sans-serif}
+input:focus-visible,button:focus-visible{outline:3px solid var(--orange);outline-offset:3px}
+button{margin-top:1rem;width:100%;min-height:48px;font-size:1.1rem;font-weight:700;font-family:Arial,sans-serif;background:var(--orange);color:var(--slab);border:0;border-radius:4px;cursor:pointer}
+button[disabled]{opacity:.6;cursor:progress}
+#msg{min-height:1.6rem;margin-top:1rem;font-family:Arial,sans-serif;font-size:1rem}
+#msg.err{color:#FFB38A}
+.fine{margin-top:2rem;font-size:.85rem;color:#C9C6C0;border-top:1px solid #4A4F58;padding-top:1rem}
+iframe{position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff}
+@media (prefers-reduced-motion:no-preference){button{transition:opacity .15s}}
+</style>
+</head>
+<body>
+<main id="gate">
+<h1>ZZ NovaDrill</h1>
+<p>Brand portal. Enter the passcode you were given to open the guides and download the brand files.</p>
+<form id="f" autocomplete="off">
+<label for="pw">Passcode</label>
+<input id="pw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+<button id="go" type="submit">Open the portal</button>
+<div id="msg" role="status" aria-live="polite"></div>
+</form>
+<noscript><p class="note">This page needs JavaScript to unlock. The files are encrypted and are opened in your browser. Nothing is sent anywhere.</p></noscript>
+<p class="fine">Test deployment of a fictional brand. The passcode is checked in your browser and is not stored or sent anywhere.</p>
+</main>
+<script>
+(function(){
+'use strict';
+var ITER=250000,BASE='r1/';
+var enc=new TextEncoder(),dec=new TextDecoder();
+var $=function(i){return document.getElementById(i)};
+var msg=$('msg'),go=$('go'),pw=$('pw');
+function say(t,e){msg.textContent=t;msg.className=e?'err':''}
+function hex(buf){return Array.prototype.map.call(new Uint8Array(buf),function(b){return('0'+b.toString(16)).slice(-2)}).join('')}
+function fetchBytes(u){return fetch(u,{cache:'no-store',credentials:'omit'}).then(function(r){if(!r.ok)throw new Error('Could not fetch '+u+' ('+r.status+')');return r.arrayBuffer()})}
+function open_(pass,blob){
+  var b=new Uint8Array(blob),salt=b.slice(0,16),nonce=b.slice(16,28),ct=b.slice(28);
+  return crypto.subtle.importKey('raw',enc.encode(pass),'PBKDF2',false,['deriveKey']).then(function(k){
+    return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:ITER,hash:'SHA-256'},k,{name:'AES-GCM',length:256},false,['decrypt'])
+  }).then(function(key){return crypto.subtle.decrypt({name:'AES-GCM',iv:nonce},key,ct)});
+}
+var files={},blobUrls={};
+function resolvePath(base,rel){var parts=base.split('/');parts.pop();rel.split('/').forEach(function(p){if(p==='..')parts.pop();else if(p!=='.'&&p!=='')parts.push(p)});return parts.join('/')}
+function showHub(pass){
+  var hub=files['human/index.html'];
+  return open_(pass,hub.cipher).then(function(plain){
+    var html=dec.decode(plain);
+    // rewrite relative links to local decrypted blobs so guides and downloads open from memory
+    var rewrites={};
+    Object.keys(files).forEach(function(p){rewrites[p]=files[p]});
+    html=html.replace(/(href|src)="((?:guides|assets)\/[^"#]+)((?:#[^"]*)?)"/g,function(m,a,rel,frag){
+      var full=resolvePath('human/index.html',rel);var f=rewrites[full];if(!f)return m;
+      return a+'="#" data-f="'+full+'" data-frag="'+frag.replace(/"/g,'')+'"';
+    });
+    html=html.replace('</body>','<script>document.addEventListener("click",function(e){var a=e.target.closest("a[data-f]");if(!a)return;e.preventDefault();parent.postMessage({open:a.getAttribute("data-f"),frag:a.getAttribute("data-frag")||"",dl:a.hasAttribute("download")},"*")})<\/script></body>');
+    var fr=document.createElement('iframe');fr.setAttribute('sandbox','allow-scripts');fr.title='ZZ NovaDrill brand portal';
+    fr.srcdoc=html;document.body.innerHTML='';document.body.style.display='block';document.body.appendChild(fr);
+    window.addEventListener('message',function(ev){
+      if(ev.source!==fr.contentWindow||!ev.data||!ev.data.open)return;
+      var f=files[ev.data.open];if(!f)return;
+      open_(pass,f.cipher).then(function(p){
+        return crypto.subtle.digest('SHA-256',p).then(function(h){
+          if(hex(h)!==f.sha256){alert('This file failed its integrity check and was not opened.');return}
+          var blob=new Blob([p],{type:f.type});var u=URL.createObjectURL(blob);
+          var a=document.createElement('a');a.href=u;a.rel='noopener';
+          if(ev.data.dl||f.type!=='text/html'&&f.type!=='application/pdf'){a.download=f.name}else{a.target='_blank'}
+          document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},60000);
+        });
+      }).catch(function(){alert('That file could not be opened.')});
+    });
+  });
+}
+$('f').addEventListener('submit',function(e){
+  e.preventDefault();var pass=pw.value;if(!pass)return;
+  go.disabled=true;say('Opening...');
+  fetchBytes(BASE+'index.enc').then(function(blob){return open_(pass,blob)}).then(function(plain){
+    var idx=JSON.parse(dec.decode(plain));say('Checking '+idx.count+' files...');
+    return Promise.all(idx.files.map(function(f){return fetchBytes(BASE+'f/'+f.id+'.enc').then(function(c){
+      return crypto.subtle.digest('SHA-256',c).then(function(h){
+        if(hex(h)!==f.enc_sha256)throw new Error('A file did not match its published checksum.');
+        files[f.path]={cipher:c,sha256:f.sha256,type:f.type,name:f.name};
+      });
+    })}));
+  }).then(function(){return showHub(pass)}).then(function(){pass=null}).catch(function(err){
+    go.disabled=false;pw.value='';
+    var wrong=!err||err.name==='OperationError'||/decrypt/i.test(String(err));
+    say(wrong?'That passcode did not open the portal. Check it and try again.':String(err.message||err),true);pw.focus();
+  });
+});
+})();
+</script>
+</body>
+</html>
