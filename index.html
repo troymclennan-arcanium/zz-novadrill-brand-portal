@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' blob: data:; frame-src blob:; base-uri 'none'; form-action 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%232B2F36'/%3E%3Crect x='8' y='8' width='16' height='16' fill='%23E8651A'/%3E%3C/svg%3E">
 <title>ZZ NovaDrill brand portal</title>
 <style>
 :root{--slab:#2B2F36;--core:#F2EFE9;--orange:#E8651A;--dust:#8C9096}
@@ -23,7 +24,11 @@ button[disabled]{opacity:.6;cursor:progress}
 #msg{min-height:1.6rem;margin-top:1rem;font-family:Arial,sans-serif;font-size:1rem}
 #msg.err{color:#FFB38A}
 .fine{margin-top:2rem;font-size:.85rem;color:#C9C6C0;border-top:1px solid #4A4F58;padding-top:1rem}
-iframe{position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff}
+iframe{position:fixed;left:0;right:0;bottom:0;top:0;width:100%;height:100%;border:0;background:#fff}
+#bar{position:fixed;top:0;left:0;right:0;height:56px;background:var(--slab);color:var(--core);display:none;align-items:center;gap:1rem;padding:0 1rem;z-index:5;border-bottom:3px solid var(--orange);font-family:Arial,sans-serif}
+#bar button{margin:0;width:auto;min-height:44px;padding:0 1.1rem;font-size:1rem}
+#bar span{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.reading #bar{display:flex}body.reading #rd{top:56px;height:calc(100% - 56px)}
 @media (prefers-reduced-motion:no-preference){button{transition:opacity .15s}}
 </style>
 </head>
@@ -72,16 +77,27 @@ function showHub(pass){
     html=html.replace('</body>','<script>document.addEventListener("click",function(e){var a=e.target.closest("a[data-f]");if(!a)return;e.preventDefault();parent.postMessage({open:a.getAttribute("data-f"),frag:a.getAttribute("data-frag")||"",dl:a.hasAttribute("download")},"*")})<\/script></body>');
     var fr=document.createElement('iframe');fr.setAttribute('sandbox','allow-scripts');fr.title='ZZ NovaDrill brand portal';
     fr.srcdoc=html;document.body.innerHTML='';document.body.style.display='block';document.body.appendChild(fr);
+    var hubFrame=fr,rd=null,curUrl=null;
+    var bar=document.createElement('div');bar.id='bar';
+    var back=document.createElement('button');back.type='button';back.textContent='Back to the portal';
+    var ttl=document.createElement('span');bar.appendChild(back);bar.appendChild(ttl);document.body.appendChild(bar);
+    function closeReader(){if(rd){rd.remove();rd=null}if(curUrl){URL.revokeObjectURL(curUrl);curUrl=null}document.body.classList.remove('reading');hubFrame.style.display='block';hubFrame.focus()}
+    back.addEventListener('click',closeReader);
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&rd)closeReader()});
+    function saveAs(p,f){var u=URL.createObjectURL(new Blob([p],{type:f.type}));var a=document.createElement('a');a.href=u;a.download=f.name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},60000)}
     window.addEventListener('message',function(ev){
-      if(ev.source!==fr.contentWindow||!ev.data||!ev.data.open)return;
-      var f=files[ev.data.open];if(!f)return;
+      if(ev.source!==hubFrame.contentWindow||!ev.data||!ev.data.open)return;
+      var f=files[ev.data.open];if(!f)return;var frag=(ev.data.frag||'').replace(/[^#A-Za-z0-9_-]/g,'');
       open_(pass,f.cipher).then(function(p){
         return crypto.subtle.digest('SHA-256',p).then(function(h){
           if(hex(h)!==f.sha256){alert('This file failed its integrity check and was not opened.');return}
-          var blob=new Blob([p],{type:f.type});var u=URL.createObjectURL(blob);
-          var a=document.createElement('a');a.href=u;a.rel='noopener';
-          if(ev.data.dl||f.type!=='text/html'&&f.type!=='application/pdf'){a.download=f.name}else{a.target='_blank'}
-          document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},60000);
+          if(ev.data.dl||(f.type!=='text/html'&&f.type!=='application/pdf')){saveAs(p,f);return}
+          if(rd)closeReader();
+          curUrl=URL.createObjectURL(new Blob([p],{type:f.type}))+(f.type==='application/pdf'?'':frag);
+          rd=document.createElement('iframe');rd.id='rd';rd.title=f.name;
+          if(f.type==='text/html')rd.setAttribute('sandbox','allow-scripts');
+          rd.src=curUrl;hubFrame.style.display='none';ttl.textContent=f.name.replace(/\.[a-z]+$/,'').replace(/-/g,' ');
+          document.body.classList.add('reading');document.body.appendChild(rd);back.focus();
         });
       }).catch(function(){alert('That file could not be opened.')});
     });
